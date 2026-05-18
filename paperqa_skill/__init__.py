@@ -547,10 +547,26 @@ async def full_pipeline(
         f"## 输出结构 (严格按顺序, 2个大块)\n\n"
         f"# 第一部分：总览\n"
         f"简洁概括论文全貌，用加粗数字，覆盖问题/挑战/方法/效果。\n"
-        f"末尾必须附中文指标表（| 分隔各列，HTML 和纯文本版均以此格式渲染），其应该包含如下列：\n"
+        f"末尾必须附指标表格，其应该包含如下列，且表格格式应符合HTML标准，：\n"
         # f"[METRICS]\n"
-        f"值、指标名称、含义解释(一句话说清这个指标衡量什么，这个指标的定义)、类别(accuracy/reduction/delta/other)\n"
-        f"表格中一行内容的示例（“|”用来分隔不同列的内容）: 39% | 准确率提升 | Top-1准确率相较于baseline的提升幅度，准确率是与ground truth一致的预测数量和总数量的比值 | accuracy\n"
+        f"指标名称、值、含义解释(一句话说清这个指标衡量什么，这个指标的定义)\n"
+        # f"表格中一行内容的示例（“|”用来分隔不同列的内容）: 39% | 准确率提升 | Top-1准确率相较于baseline的提升幅度，准确率是与ground truth一致的预测数量和总数量的比值\n"
+        f"表格示例："
+        f"```html\n"
+        f"<table>\n"
+        f"    <tr>\n"
+        f"        <td>指标名称</td>\n"
+        f"        <td>值</td>\n"
+        f"        <td>含义解释</td>\n"
+        f"    </tr>\n"
+        f"    <tr>\n"
+        f"        <td>准确率提升</td>\n"
+        f"        <td>39%</td>\n"
+        f"        <td>Top-1准确率相较于baseline的提升幅度，准确率是与ground truth一致的预测数量和总数量的比值</td>\n"
+        f"    </tr>\n"
+        f"</table>\n"
+        f"```\n"
+
         # f"[/METRICS]\n"
         f"重要：含义解释列不可省略，必须用完整句子描述指标意义，不可仅重复指标名。\n"
         f"### 问题与挑战\n"
@@ -565,7 +581,7 @@ async def full_pipeline(
         f"- 关键数字用 **加粗**，技术术语中英文对照\n"
         f"- 创新点每小节 5-8 句有实质内容\n"
         f"- 仅写数据能确认的信息，不空洞评价\n"
-        f"- 含有中文指标名的 [METRICS]...[METRICS] 表放在第一部分末尾\n\n"
+        f"- 指标表格放在第一部分末尾\n\n"
         f"## 分析数据\n"
         f"{combined[:12000]}"
     )
@@ -850,11 +866,92 @@ async def _describe_figures(
     return described
 
 
-def _format_metrics_for_txt(text: str) -> str:
-    """将 [METRICS]...[/METRICS] 块格式化为对齐的纯文本表格。
+def _parse_html_metrics_table(text: str) -> list[list[str]] | None:
+    """解析文本中第一个 HTML <table>，返回数据行列表（跳过 <th> 表头行）。
 
-    跳过示例行 (以 "示例:" / "Example:" 开头)，按列对齐输出。
+    每行是一个字符串列表 [value, name, description, category]。
+    返回 None 表示未找到有效的 HTML 表格。
     """
+    import re
+
+    table_match = re.search(
+        r'<table[^>]*>(.*?)</table>', text, re.DOTALL | re.IGNORECASE
+    )
+    if not table_match:
+        return None
+
+    rows = []
+    for tr_match in re.finditer(
+        r'<tr[^>]*>(.*?)</tr>', table_match.group(1), re.DOTALL | re.IGNORECASE
+    ):
+        cells = re.findall(
+            r'<td[^>]*>(.*?)</td>', tr_match.group(1), re.DOTALL | re.IGNORECASE
+        )
+        if cells:
+            cleaned = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+            if any(cleaned):
+                rows.append(cleaned)
+
+    return rows if rows else None
+
+
+def _strip_html_tables(text: str) -> str:
+    """移除文本中所有 HTML <table>...</table> 块（用于在渲染为卡片前清理 markdown 文本）。"""
+    import re
+    return re.sub(
+        r'<table[^>]*>.*?</table>', '', text, flags=re.DOTALL | re.IGNORECASE
+    )
+
+
+def _format_metrics_for_txt(text: str) -> str:
+    """将 HTML <table> 或 [METRICS] 块格式化为对齐的纯文本表格。
+
+    优先尝试解析 HTML <table>，失败后回退到旧版 [METRICS] 格式。
+    """
+    import re
+
+    rows = _parse_html_metrics_table(text)
+    if rows is None:
+        # Fallback: old [METRICS]...[/METRICS] format
+        return _format_metrics_for_txt_legacy(text)
+
+    # 计算各列最大显示宽度（中文字符宽度按 2，ASCII 按 1）
+    n_cols = max(len(r) for r in rows)
+    col_widths = [0] * n_cols
+    for r in rows:
+        for i, c in enumerate(r):
+            width = sum(2 if ord(ch) > 127 else 1 for ch in c)
+            col_widths[i] = max(col_widths[i], width, len(c))
+
+    sep = "═" * (sum(col_widths) + (n_cols - 1) * 3 + 4)
+    label_col = rows[0][1] if len(rows[0]) > 1 else rows[0][0]
+    header = "关键指标" if any(ord(c) > 127 for c in label_col) else "Key Metrics"
+
+    out = [f"\n{sep}", f"  {header}", f"{sep}"]
+    for r in rows:
+        padded = []
+        for i in range(n_cols):
+            val = r[i] if i < len(r) else ""
+            display_w = sum(2 if ord(ch) > 127 else 1 for ch in val)
+            pad = max(0, col_widths[i] - display_w)
+            padded.append(val + " " * pad)
+        out.append("  " + " | ".join(padded))
+    out.append(sep)
+
+    formatted_table = "\n".join(out)
+
+    # 用格式化后的纯文本表格替换原始 HTML <table> 块
+    return re.sub(
+        r'<table[^>]*>.*?</table>',
+        formatted_table,
+        text,
+        count=1,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+
+def _format_metrics_for_txt_legacy(text: str) -> str:
+    """回退：处理旧版 [METRICS]...[/METRICS] 格式。"""
     import re
 
     def _render_table(match: re.Match) -> str:
@@ -872,27 +969,21 @@ def _format_metrics_for_txt(text: str) -> str:
         if not rows:
             return ""
 
-        # 计算各列最大宽度
         n_cols = max(len(r) for r in rows)
         col_widths = [0] * n_cols
         for r in rows:
             for i, c in enumerate(r):
-                # 中文字符宽度按2计算，ASCII按1
                 width = sum(2 if ord(ch) > 127 else 1 for ch in c)
                 col_widths[i] = max(col_widths[i], width, len(c))
 
-        # 渲染表头 (根据指标名列判断语言)
         sep = "═" * (sum(col_widths) + (n_cols - 1) * 3 + 4)
-        # 检测指标名称列 (index 1) 是否含中文
         label_col = rows[0][1] if len(rows[0]) > 1 else rows[0][0]
         header = "关键指标" if any(ord(c) > 127 for c in label_col) else "Key Metrics"
         out = [f"\n{sep}", f"  {header}", f"{sep}"]
-
         for r in rows:
             padded = []
             for i in range(n_cols):
                 val = r[i] if i < len(r) else ""
-                # 填充到显示宽度
                 display_w = sum(2 if ord(ch) > 127 else 1 for ch in val)
                 pad = max(0, col_widths[i] - display_w)
                 padded.append(val + " " * pad)
@@ -924,7 +1015,9 @@ def _generate_html_report(
     if figures is None:
         figures = []
     if parts is None:
-        summary_clean = re.sub(r'\n?\[METRICS\].*?\[/METRICS\]', '', summary, flags=re.DOTALL | re.IGNORECASE)
+        # 清理 HTML 表格和 [METRICS] 块后按标题拆分
+        summary_clean = _strip_html_tables(summary)
+        summary_clean = re.sub(r'\n?\[METRICS\].*?\[/METRICS\]', '', summary_clean, flags=re.DOTALL | re.IGNORECASE)
         parts = [p.strip() for p in re.split(r'\n(?=# [^#])', summary_clean.strip()) if p.strip()]
 
     def _sanitize(text: str) -> str:
@@ -972,6 +1065,18 @@ def _generate_html_report(
         for sub in subsections:
             if not sub.strip():
                 continue
+            # 提取 HTML 表格块妥善保留 (stat cards 之外同时展示原始表格)
+            table_blocks = {}
+            table_idx = 0
+            def _hold_table(m):
+                nonlocal table_idx
+                key = f"__TABLE_BLOCK_{table_idx}__"
+                table_blocks[key] = m.group(0)
+                table_idx += 1
+                return key
+            sub = re.sub(r'<table[^>]*>.*?</table>', _hold_table, sub, flags=re.DOTALL | re.IGNORECASE)
+            # 清理残留的代码块标记 (```html / ``` 等)
+            sub = re.sub(r'^```\w*\s*$', '', sub, flags=re.MULTILINE)
             lines = sub.strip().split("\n")
             if not lines:
                 continue
@@ -990,6 +1095,10 @@ def _generate_html_report(
                 s = line.strip()
                 if not s:
                     continue
+                # 检查是否为 table 占位标记
+                if s in table_blocks:
+                    body_parts.append(table_blocks[s])
+                    continue
                 if s.startswith("- ") or s.startswith("* "):
                     body_parts.append(f"<li>{_render_markdown_line(s[2:])}</li>")
                 elif s.startswith(("1. ", "2. ", "3. ", "4. ", "5. ")):
@@ -998,7 +1107,11 @@ def _generate_html_report(
                     continue
                 else:
                     body_parts.append(f"<p>{_render_markdown_line(s)}</p>")
+            # 还原表格块 (替换占位符，避免被 <p> 包裹)
             body_html = "\n".join(body_parts)
+            for key, tbl in table_blocks.items():
+                body_html = body_html.replace(f"<p>{key}</p>", tbl)
+                body_html = body_html.replace(key, tbl)
             if "<li>" in body_html:
                 body_html = f"<ul>{body_html}</ul>"
             cards += f"""<div class="section-card">
@@ -1063,40 +1176,75 @@ def _generate_html_report(
             flow=flow_html, figures_html=figs_html,
         )
 
-    # ---- 从 parts 的 [METRICS] 块提取该语言的指标 ----
+    # ---- 从 HTML <table> 或 [METRICS] 块提取该语言的指标 ----
     metrics = []
     parts_text = "\n\n".join(parts) if parts else summary  # 从本语言 parts 中提取
-    mm = re.search(r'\[METRICS\]\s*\n(.*?)\[/METRICS\]', parts_text, re.DOTALL | re.IGNORECASE)
-    if not mm:
-        # 回退: 从 full summary 中提取
-        mm = re.search(r'\[METRICS\]\s*\n(.*?)\[/METRICS\]', summary, re.DOTALL | re.IGNORECASE)
-    if mm:
-        for line in mm.group(1).strip().split("\n"):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            # 跳过示例行 (以 "示例:" 或 "Example:" 开头)
-            if line.startswith(("示例:", "Example:")):
-                continue
-            cols = [p.strip() for p in line.split("|", 3)]
-            if len(cols) >= 3:
-                value_str = cols[0]
-                label_str = cols[1]
-                description_str = cols[2] if len(cols) > 2 else ""
-                category = cols[3] if len(cols) > 3 else "other"
-                # 清理数字
-                clean_val = value_str.replace('%', '').replace('×', '').replace('x', '')
-                try:
-                    num_val = float(clean_val)
-                except ValueError:
+
+    rows = _parse_html_metrics_table(parts_text)
+    if rows is None:
+        # 回退 1: 从 summary 中解析 HTML table
+        rows = _parse_html_metrics_table(summary)
+    if rows is None:
+        # 回退 2: 旧的 [METRICS]...[/METRICS] 格式
+        mm = re.search(r'\[METRICS\]\s*\n(.*?)\[/METRICS\]', parts_text, re.DOTALL | re.IGNORECASE)
+        if not mm:
+            mm = re.search(r'\[METRICS\]\s*\n(.*?)\[/METRICS\]', summary, re.DOTALL | re.IGNORECASE)
+        if mm:
+            rows = []
+            for line in mm.group(1).strip().split("\n"):
+                line = line.strip()
+                if not line or line.startswith("#"):
                     continue
-                metrics.append({
-                    "label": label_str[:24],
-                    "description": description_str[:80],
-                    "value": value_str,
-                    "num": num_val,
-                    "category": category.strip(),
-                })
+                if line.startswith(("示例:", "Example:")):
+                    continue
+                cols = [p.strip() for p in line.split("|", 3)]
+                if len(cols) >= 2:
+                    rows.append(cols)
+
+    if rows:
+        # 自动检测 HTML table 列顺序
+        # 期望: (value, name, description)  → cols[0] 可解析为数字
+        # 实际可能: (name, value, description) → cols[0] 是文字
+        _swap_needed = False
+        for _r in rows[:4]:
+            if len(_r) < 2:
+                continue
+            try:
+                float(_r[0].replace('%', '').replace('×', '').replace('x', '').replace('→', ''))
+            except ValueError:
+                try:
+                    float(_r[1].replace('%', '').replace('×', '').replace('x', '').replace('→', ''))
+                    _swap_needed = True  # cols[0] 不是数字但 cols[1] 是 → 名称在前的顺序
+                    break
+                except ValueError:
+                    pass
+
+        for cols in rows:
+            if len(cols) < 2:
+                continue
+            # 如果检测到名称优先的列顺序，交换前两列
+            if _swap_needed and len(cols) >= 2:
+                cols[0], cols[1] = cols[1], cols[0]
+            value_str = cols[0]
+            label_str = cols[1]
+            description_str = cols[2] if len(cols) > 2 else ""
+            category = cols[3] if len(cols) > 3 else "other"
+            # 清理数字: 去掉 %, $, x, 单位等，提取第一个浮点数
+            clean_val = value_str.replace('%', '').replace('$', '').replace('×', '').replace('x', '')
+            num_match = re.search(r'\d+\.?\d*', clean_val)
+            if num_match:
+                clean_val = num_match.group()
+            try:
+                num_val = float(clean_val)
+            except ValueError:
+                continue
+            metrics.append({
+                "label": label_str[:24],
+                "description": description_str[:80],
+                "value": value_str,
+                "num": num_val,
+                "category": category.strip(),
+            })
 
     # 生成指标卡片 (所有指标)
     stats_html = ""
