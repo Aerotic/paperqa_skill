@@ -1,0 +1,15 @@
+[project]
+name = "paperqa-skill"
+version = "2.1.0"
+description = "PaperQA2 论文分析 Skill — 可移植、中英双语 HTML+文本报告、PDF 原图提取、架构流程图、markdown 防泄漏"
+requires-python = ">=3.10"
+dependencies = [
+    "paper-qa>=2026.3.18",
+    "paper-qa[local]",
+    "litellm>=1.0",
+    "pymupdf>=1.27",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
