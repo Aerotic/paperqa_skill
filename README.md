@@ -73,7 +73,10 @@ python -c "import paperqa; print(paperqa.__version__)"
 # Windows PowerShell
 $env:DEEPSEEK_API_KEY = "sk-your-deepseek-key"
 $env:BAILIAN_API_KEY = "sk-your-bailian-key"
-$env:PAPER_DIR = "C:\path\to\papers"
+
+# 可选: 自定义 API Base URL (默认值如下，一般无需修改)
+$env:DEEPSEEK_API_BASE = "https://api.deepseek.com"
+$env:BAILIAN_API_BASE = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 ```
 
 ---
