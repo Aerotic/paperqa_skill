@@ -1246,76 +1246,7 @@ def _generate_html_report(
                 "category": category.strip(),
             })
 
-    # 生成指标卡片 (所有指标)
-    stats_html = ""
-    if metrics:
-        cards = ""
-        for m in metrics[:6]:
-            bg_color = "#0f3460" if m.get("category") in ("accuracy",) else "#e94560"
-            desc_html = f'<div class="desc">{m["description"][:60]}</div>' if m.get("description") else ""
-            cards += f"""<div class="stat-card" style="border-top-color: {bg_color};">
-  <div class="num">{m["value"]}</div>
-  <div class="label">{m["label"][:18]}</div>
-  {desc_html}
-</div>"""
-        if cards:
-            stats_html = f'<div class="stats-row">{cards}</div>'
-
-    # 生成 SVG 柱状图: 按类别分两组
-    bar_charts_html = ""
-    for cat, cat_title in [("accuracy", "📊 准确率指标"), ("reduction", "📉 提升/降低指标")]:
-        cat_metrics = [m for m in metrics if m.get("category") in (cat, "delta") and m["num"] > 0][:6]
-        if len(cat_metrics) < 2:
-            continue
-        bars = ""
-        bar_height = 28
-        chart_height = len(cat_metrics) * (bar_height + 16) + 40
-        max_val = max(m["num"] for m in cat_metrics)
-        for i, m in enumerate(cat_metrics):
-            y = 40 + i * (bar_height + 16)
-            width_pct = (m["num"] / max_val) * 100 if max_val > 0 else 0
-            bars += f"""<text x="0" y="{y + 18}" font-size="12" fill="#1a1a2e">{m["label"][:16]}</text>
-  <rect x="130" y="{y}" width="{max(width_pct * 3.2, 4)}" height="{bar_height}" rx="4" fill="url(#barGrad)" opacity="0.85"/>
-  <text x="{130 + max(width_pct * 3.2 + 6, 8)}" y="{y + 18}" font-size="12" font-weight="bold" fill="#e94560">{m["value"]}</text>"""
-        bar_charts_html += f"""<div class="chart-card">
-  <h3>{cat_title}</h3>
-  <svg viewBox="0 0 480 {chart_height}" width="100%" style="max-width:480px">
-    <defs>
-      <linearGradient id="barGrad" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#e94560"/>
-        <stop offset="100%" stop-color="#0f3460"/>
-      </linearGradient>
-    </defs>
-    {bars}
-  </svg>
-</div>"""
-    # 如果没有按类别分，回退到单图
-    if not bar_charts_html:
-        bar_charts_html = ""
-        all_metrics = [m for m in metrics if m["num"] > 0][:6]
-        if len(all_metrics) >= 2:
-            bars = ""
-            bar_height = 28
-            chart_height = len(all_metrics) * (bar_height + 16) + 40
-            max_val = max(m["num"] for m in all_metrics)
-            for i, m in enumerate(all_metrics):
-                y = 40 + i * (bar_height + 16)
-                width_pct = (m["num"] / max_val) * 100 if max_val > 0 else 0
-                bars += f"""<text x="0" y="{y + 18}" font-size="12" fill="#1a1a2e">{m["label"][:16]}</text>
-  <rect x="130" y="{y}" width="{max(width_pct * 3.2, 4)}" height="{bar_height}" rx="4" fill="url(#barGrad)" opacity="0.85"/>
-  <text x="{130 + max(width_pct * 3.2 + 6, 8)}" y="{y + 18}" font-size="12" font-weight="bold" fill="#e94560">{m["value"]}</text>"""
-            bar_charts_html = f"""<div class="chart-card">
-  <h3>📊 关键指标</h3>
-  <svg viewBox="0 0 480 {chart_height}" width="100%" style="max-width:480px">
-    <defs>
-      <linearGradient id="barGrad" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#e94560"/>
-        <stop offset="100%" stop-color="#0f3460"/>
-      </linearGradient>
-    </defs>
-    {bars}
-  </svg>
-</div>"""
+    # 指标数据已通过 HTML <table> 在报告正文中直接展示，不生成独立卡片/柱状图
 
     # 生成 date
     date_str = datetime.now().strftime("%Y-%m-%d")
@@ -1445,8 +1376,6 @@ def _generate_html_report(
   </div>
 </header>
 <main class="container">
-  {stats_html}
-  {bar_charts_html}
   {parts_html}
 </main>
 <footer>
