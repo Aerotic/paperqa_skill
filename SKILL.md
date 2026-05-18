@@ -24,23 +24,51 @@ Load this skill when the user:
 - Wants metrics, innovations, or architecture extracted from a paper
 - Needs to download a paper and then analyze it
 
-## Pre-flight: Configuration Check
+## Pre-flight: Configuration Check (MANDATORY)
 
-Before running any analysis, verify API keys are available:
+**Before any analysis, you MUST verify API keys are configured.** The skill will
+fail silently or produce degraded output if keys are missing.
 
-| Key | Env Var | Purpose |
-|-----|---------|---------|
-| DeepSeek | `DEEPSEEK_API_KEY` | Text Q&A, report generation, translation |
-| Bailian | `BAILIAN_API_KEY` | Multimodal figure descriptions (optional) |
+### Step 1: Run `check_config()`
 
-These are stored in `~/.config/paperqa_skill/paperqa_skill_config.json` or set
-via environment variables.
+This checks for required keys across three sources (priority: env var > config file > default):
 
-Call `check_config()` — if it returns missing keys, tell the user to run:
+| Key | Env Var | Required | Purpose |
+|-----|---------|----------|---------|
+| DeepSeek | `DEEPSEEK_API_KEY` | **Yes** | Text Q&A, report generation, translation |
+| Bailian | `BAILIAN_API_KEY` | No (only for multimodal) | Figure descriptions via Qwen3-VL-Plus |
+
+Configuration is loaded from `~/.config/paperqa_skill/paperqa_skill_config.json`,
+with environment variables taking priority.
+
+### Step 2: If keys are missing
+
+**Tell the user immediately** — do NOT proceed with analysis. The user has two options:
+
+**Option A — Quick (env vars, one-time):**
+
+```bash
+# Windows PowerShell
+$env:DEEPSEEK_API_KEY = "sk-your-key"
+$env:BAILIAN_API_KEY = "sk-your-key"   # optional, skip for text-only mode
+
+# Linux / macOS
+export DEEPSEEK_API_KEY="sk-your-key"
+export BAILIAN_API_KEY="sk-your-key"   # optional
+```
+
+**Option B — Persistent (config file, survives restarts):**
 
 ```bash
 python -m paperqa_skill --configure
 ```
+
+This launches an interactive wizard that saves to `~/.config/paperqa_skill/paperqa_skill_config.json`.
+
+### Step 3: Re-verify
+
+After the user sets their keys, call `check_config()` again. Only proceed when
+it returns an empty list.
 
 ## Primary Entry Point
 
