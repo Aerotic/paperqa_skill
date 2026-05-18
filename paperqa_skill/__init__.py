@@ -489,7 +489,7 @@ async def full_pipeline(
     queries: Optional[list[str]] = None,
     output_dir: Optional[str] = None,
     multimodal: bool = True,
-) -> str:
+) -> tuple[str, str]:
     """完整流水线: 多角度查询 + HTML 图文报告生成
 
     Args:
@@ -500,7 +500,7 @@ async def full_pipeline(
         multimodal: 启用多模态
 
     Returns:
-        HTML 报告路径
+        (zh_html_path, en_html_path) 中英文 HTML 报告路径元组
     """
     # 先解析 PDF 源，确保文件存在
     pdf_path = await resolve_pdf_source(pdf_source, output_dir=output_dir)
@@ -540,53 +540,75 @@ async def full_pipeline(
 
     combined = "\n\n".join(all_answers)
 
-    # Step 3: 用 DeepSeek 将分析结果整理为**中英双语**报告
-    summary_prompt = (
+    # Step 3: 生成中文版完整报告 (专注、高质量)
+    zh_prompt = (
         f"你是一位顶级学术论文分析专家。请根据以下对论文「{paper_title or pdf_stem}」的分析数据，"
-        f"生成一份完整的**中英双语技术分析报告**。\n\n"
-        f"## 输出结构 (严格按顺序, 4个大块)\n\n"
-        f"# 第一部分：总览 (中文)\n"
+        f"生成一份完整的**中文技术分析报告**。\n\n"
+        f"## 输出结构 (严格按顺序, 2个大块)\n\n"
+        f"# 第一部分：总览\n"
         f"简洁概括论文全貌，用加粗数字，覆盖问题/挑战/方法/效果。\n"
-        f"末尾必须附中文指标表：\n"
-        f"[METRICS]\n"
-        f"值 | 中文指标名 | 类别(accuracy/reduction/delta/other)\n"
-        f"[/METRICS]\n"
+        f"末尾必须附中文指标表（| 分隔各列，HTML 和纯文本版均以此格式渲染），其应该包含如下列：\n"
+        # f"[METRICS]\n"
+        f"值、指标名称、含义解释(一句话说清这个指标衡量什么，这个指标的定义)、类别(accuracy/reduction/delta/other)\n"
+        f"表格中一行内容的示例（“|”用来分隔不同列的内容）: 39% | 准确率提升 | Top-1准确率相较于baseline的提升幅度，准确率是与ground truth一致的预测数量和总数量的比值 | accuracy\n"
+        # f"[/METRICS]\n"
+        f"重要：含义解释列不可省略，必须用完整句子描述指标意义，不可仅重复指标名。\n"
         f"### 问题与挑战\n"
         f"### 方法概览\n"
         f"### 架构流程\n"
         f"用文字描述系统架构的完整链路，按步骤编号列出各阶段组件。\n"
         f"### 关键效果\n\n"
-        f"# Part 1: Overview (English)\n"
-        f"Same content as above, in fluent technical English. Keep bold numbers.\n"
-        f"End with English metrics table:\n"
-        f"[METRICS]\n"
-        f"value | English metric name | category(accuracy/reduction/delta/other)\n"
-        f"[/METRICS]\n"
-        f"### Problem & Challenge\n"
-        f"### Methodology\n"
-        f"### Architecture Flow\n"
-        f"### Key Results\n\n"
-        f"# 第二部分：创新点深度剖析 (中文)\n"
+        f"# 第二部分：创新点深度剖析\n"
         f"每个主要创新点一个 ### 小节：创新点命名 → 核心思想 → 与已有工作的区别 → 技术实现 → 有效性证据。\n\n"
-        f"# Part 2: Innovation Deep-Dive (English)\n"
-        f"Same innovations as above, in fluent technical English.\n\n"
         f"## 格式要求\n"
-        f"- 用 # 标记 4 大块, ### 标记小节\n"
+        f"- 用 # 标记 2 大块, ### 标记小节\n"
         f"- 关键数字用 **加粗**，技术术语中英文对照\n"
         f"- 创新点每小节 5-8 句有实质内容\n"
-        f"- 仅写数据能确认的信息，不空洞评价\n\n"
+        f"- 仅写数据能确认的信息，不空洞评价\n"
+        f"- 含有中文指标名的 [METRICS]...[METRICS] 表放在第一部分末尾\n\n"
         f"## 分析数据\n"
-        f"{combined[:10000]}"
+        f"{combined[:12000]}"
     )
 
     from litellm import acompletion
-    response = await acompletion(
+    response_zh = await acompletion(
         model="openai/deepseek-chat",
         api_key=DEEPSEEK_API_KEY,
         api_base=DEEPSEEK_API_BASE,
-        messages=[{"role": "user", "content": summary_prompt}],
+        messages=[{"role": "user", "content": zh_prompt}],
+        temperature=0.2,
     )
-    summary_text = response.choices[0].message.content or ""
+    zh_report = response_zh.choices[0].message.content or ""
+    print(f"[paperqa_skill] Chinese report generated ({len(zh_report)} chars)")
+
+    # Step 3b: 翻译中文报告为英文 (忠实翻译，保留结构和数据)
+    translate_prompt = (
+        f"You are a professional academic translator. Translate the following Chinese technical "
+        f"analysis report about the paper '{paper_title or pdf_stem}' into fluent, idiomatic English.\n\n"
+        f"## Requirements\n"
+        f"- Preserve ALL structure: sections (#), subsections (###), bullet points, paragraphs\n"
+        f"- Keep bold numbers (**value**) exactly as they are — do not convert units\n"
+        f"- Translate the [METRICS] table: convert Chinese metric names and descriptions to "
+        f"standard English equivalents, keep the values unchanged. Preserve the 4-column format:\n"
+        f"  value | metric name | explanation (one sentence describing what this metric measures and how this metric is defined) | category(accuracy/reduction/delta/other)\n"
+        f"  Example: 39% | Accuracy Gain | Top-1 accuracy improvement over baseline | accuracy\n"
+        f"- The explanation column must describe what the metric means — do NOT leave it empty or copy the metric name\n"
+        f"- Use standard academic/technical English terminology\n"
+        f"- Maintain technical accuracy — do not add, remove, or alter facts\n"
+        f"- Output ONLY the translated report, no preamble or commentary\n\n"
+        f"## Chinese Report to Translate\n\n"
+        f"{zh_report[:18000]}"
+    )
+
+    response_en = await acompletion(
+        model="openai/deepseek-chat",
+        api_key=DEEPSEEK_API_KEY,
+        api_base=DEEPSEEK_API_BASE,
+        messages=[{"role": "user", "content": translate_prompt}],
+        temperature=0.1,  # 低温确保翻译忠实度
+    )
+    en_report = response_en.choices[0].message.content or ""
+    print(f"[paperqa_skill] English report translated ({len(en_report)} chars)")
 
     # Step 3.5: 生成架构流程图 (中英各一份)
     flow_svg_zh = await _build_flow_svg(paper_title or pdf_stem, combined, lang="zh")
@@ -602,31 +624,30 @@ async def full_pipeline(
     else:
         print(f"[paperqa_skill] No figures extracted or described")
 
-    # Step 4: 解析 summary 为 4 大部分，拆成中英两份报告
-    parts = re.split(r'\n(?=# [^#])', summary_text.strip())
-    parts = [p.strip() for p in parts if p.strip()]
+    # Step 4: 解析中文和英文报告 (各自独立拆分为2大部分)
+    zh_parts = re.split(r'\n(?=# [^#])', zh_report.strip())
+    zh_parts = [p.strip() for p in zh_parts if p.strip()]
 
-    # ZH 部分: 总览(中文) + 创新点(中文) → indices 0, 2 (或 0, 1 取决于实际输出)
-    # EN 部分: Overview + Innovation → indices 1, 3
-    zh_parts = [parts[i] for i in range(0, min(4, len(parts)), 2)]
-    en_parts = [parts[i] for i in range(1, min(4, len(parts)), 2)]
+    en_parts = re.split(r'\n(?=# [^#])', en_report.strip())
+    en_parts = [p.strip() for p in en_parts if p.strip()]
 
-    def _gen_one(path, lang_parts, flow):
+    def _gen_one(path, lang_parts, flow, lang, report_text):
         _generate_html_report(
             html_path=path,
             title=paper_title or pdf_stem,
-            summary=summary_text,
+            summary=report_text,
             all_answers=all_answers,
             flow_svg=flow,
             figures=described_figures,
             parts=lang_parts,
+            lang=lang,
         )
         print(f"[paperqa_skill] HTML report: {path}")
 
     zh_path = os.path.join(output_dir, f"{pdf_stem}_report_zh.html")
     en_path = os.path.join(output_dir, f"{pdf_stem}_report_en.html")
-    _gen_one(zh_path, zh_parts, flow_svg_zh)
-    _gen_one(en_path, en_parts, flow_svg_en)
+    _gen_one(zh_path, zh_parts, flow_svg_zh, "zh", zh_report)
+    _gen_one(en_path, en_parts, flow_svg_en, "en", en_report)
 
     # Step 5: 生成纯文本版报告 (中英各一份)
     def _save_txt(path, lang_parts):
@@ -634,8 +655,9 @@ async def full_pipeline(
         # 清理 markdown: 去掉 ** 标记和 ### 前缀，保留可读文本
         text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
         text = re.sub(r'###\s+', '', text)
-        text = re.sub(r'# Part \d+.*\n', '', text)
-        text = re.sub(r'\[METRICS\].*?\[/METRICS\]', '', text, flags=re.DOTALL)
+        text = re.sub(r'# [^\n]*\n', '', text)
+        # 将 [METRICS] 块格式化为可读文本表格
+        text = _format_metrics_for_txt(text)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text.strip())
         print(f"[paperqa_skill] Text report: {path}")
@@ -828,6 +850,64 @@ async def _describe_figures(
     return described
 
 
+def _format_metrics_for_txt(text: str) -> str:
+    """将 [METRICS]...[/METRICS] 块格式化为对齐的纯文本表格。
+
+    跳过示例行 (以 "示例:" / "Example:" 开头)，按列对齐输出。
+    """
+    import re
+
+    def _render_table(match: re.Match) -> str:
+        block = match.group(1).strip()
+        rows = []
+        for line in block.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith(("示例:", "Example:")):
+                continue
+            cols = [c.strip() for c in line.split("|", 3)]
+            if len(cols) >= 2:
+                rows.append(cols)
+        if not rows:
+            return ""
+
+        # 计算各列最大宽度
+        n_cols = max(len(r) for r in rows)
+        col_widths = [0] * n_cols
+        for r in rows:
+            for i, c in enumerate(r):
+                # 中文字符宽度按2计算，ASCII按1
+                width = sum(2 if ord(ch) > 127 else 1 for ch in c)
+                col_widths[i] = max(col_widths[i], width, len(c))
+
+        # 渲染表头 (根据指标名列判断语言)
+        sep = "═" * (sum(col_widths) + (n_cols - 1) * 3 + 4)
+        # 检测指标名称列 (index 1) 是否含中文
+        label_col = rows[0][1] if len(rows[0]) > 1 else rows[0][0]
+        header = "关键指标" if any(ord(c) > 127 for c in label_col) else "Key Metrics"
+        out = [f"\n{sep}", f"  {header}", f"{sep}"]
+
+        for r in rows:
+            padded = []
+            for i in range(n_cols):
+                val = r[i] if i < len(r) else ""
+                # 填充到显示宽度
+                display_w = sum(2 if ord(ch) > 127 else 1 for ch in val)
+                pad = max(0, col_widths[i] - display_w)
+                padded.append(val + " " * pad)
+            out.append("  " + " | ".join(padded))
+        out.append(sep)
+        return "\n".join(out)
+
+    return re.sub(
+        r'\[METRICS\]\s*\n(.*?)\[/METRICS\]',
+        _render_table,
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+
 def _generate_html_report(
     html_path: str,
     title: str,
@@ -836,6 +916,7 @@ def _generate_html_report(
     flow_svg: str = "",
     figures: list[dict] = None,
     parts: list[str] = None,
+    lang: str = "zh",
 ) -> None:
     from datetime import datetime
     import re
@@ -862,14 +943,12 @@ def _generate_html_report(
         text = re.sub(r'(?<=\n)---(?=\n)', '<hr>', text)
         return text
 
-    # ---- 解析 summary 为 4 大部分 (按 # 开头, 非 ## 非 ### 拆分) ----
+    # ---- 解析 summary 为 2 大部分 (按 # 开头, 非 ## 非 ### 拆分) ----
     # (parts 已由调用方传入，跳过解析)
 
     part_colors = [
-        "#0f3460",  # ZH overview (深蓝)
-        "#0f3460",  # EN overview (深蓝)
-        "#e94560",  # ZH innovation (红)
-        "#e94560",  # EN innovation (红)
+        "#0f3460",  # Overview (深蓝)
+        "#e94560",  # Innovation (红)
     ]
 
     def _render_markdown_line(line: str) -> str:
@@ -883,13 +962,11 @@ def _generate_html_report(
         part_label = part_title.strip()
         is_overview = "总览" in part_label or "Overview" in part_label
         icon = "📋" if is_overview else "💡"
-        # 语言标签
-        if "中文" in part_label or "总览" in part_label and "中文" in part_label:
+        # 语言标签 (由外层 lang 参数决定)
+        if lang == "zh":
             lang_tag = '<span style="font-size:0.65em;background:#0f3460;color:#fff;padding:2px 10px;border-radius:10px;margin-left:8px;">中文</span>'
-        elif "English" in part_label:
-            lang_tag = '<span style="font-size:0.65em;background:#e94560;color:#fff;padding:2px 10px;border-radius:10px;margin-left:8px;">English</span>'
         else:
-            lang_tag = ""
+            lang_tag = '<span style="font-size:0.65em;background:#e94560;color:#fff;padding:2px 10px;border-radius:10px;margin-left:8px;">English</span>'
 
         cards = ""
         for sub in subsections:
@@ -945,7 +1022,11 @@ def _generate_html_report(
     if figures:
         for fig in figures[:6]:
             mime = f"image/{fig['ext']}" if fig['ext'] != 'jpeg' else 'image/jpeg'
-            desc = fig.get('desc_zh', '') or fig.get('desc_en', '')
+            # 根据语言选择描述: 中文报告用 desc_zh, 英文报告用 desc_en
+            if lang == "zh":
+                desc = fig.get('desc_zh', '') or fig.get('desc_en', '')
+            else:
+                desc = fig.get('desc_en', '') or fig.get('desc_zh', '')
             desc = _sanitize(desc)
             fig_html = f"""<div class="figure-card">
   <img src="data:{mime};base64,{fig['b64']}" alt="Figure from page {fig['page']}" style="max-width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1);"/>
@@ -955,7 +1036,7 @@ def _generate_html_report(
             idx = 0 if figures_html_parts[0].count('figure-card') < 3 else 1
             figures_html_parts[idx] += fig_html
 
-    # 遍历 4 大部分: 每部分拆出 ### 子章节
+    # 遍历各部分: 每部分拆出 ### 子章节
     parts_html = ""
     for idx, part_text in enumerate(parts):
         clean = part_text.strip()
@@ -994,11 +1075,15 @@ def _generate_html_report(
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            parts = [p.strip() for p in line.split("|", 2)]
-            if len(parts) >= 2:
-                value_str = parts[0]
-                label_str = parts[1]
-                category = parts[2] if len(parts) > 2 else "other"
+            # 跳过示例行 (以 "示例:" 或 "Example:" 开头)
+            if line.startswith(("示例:", "Example:")):
+                continue
+            cols = [p.strip() for p in line.split("|", 3)]
+            if len(cols) >= 3:
+                value_str = cols[0]
+                label_str = cols[1]
+                description_str = cols[2] if len(cols) > 2 else ""
+                category = cols[3] if len(cols) > 3 else "other"
                 # 清理数字
                 clean_val = value_str.replace('%', '').replace('×', '').replace('x', '')
                 try:
@@ -1006,7 +1091,8 @@ def _generate_html_report(
                 except ValueError:
                     continue
                 metrics.append({
-                    "label": label_str[:20],
+                    "label": label_str[:24],
+                    "description": description_str[:80],
                     "value": value_str,
                     "num": num_val,
                     "category": category.strip(),
@@ -1018,9 +1104,11 @@ def _generate_html_report(
         cards = ""
         for m in metrics[:6]:
             bg_color = "#0f3460" if m.get("category") in ("accuracy",) else "#e94560"
+            desc_html = f'<div class="desc">{m["description"][:60]}</div>' if m.get("description") else ""
             cards += f"""<div class="stat-card" style="border-top-color: {bg_color};">
   <div class="num">{m["value"]}</div>
   <div class="label">{m["label"][:18]}</div>
+  {desc_html}
 </div>"""
         if cards:
             stats_html = f'<div class="stats-row">{cards}</div>'
@@ -1131,6 +1219,7 @@ def _generate_html_report(
   }}
   .stat-card .num {{ font-size: 1.8em; font-weight: 800; color: #0f3460; line-height: 1.2; }}
   .stat-card .label {{ font-size: 0.82em; color: #666; margin-top: 6px; }}
+  .stat-card .desc {{ font-size: 0.72em; color: #999; margin-top: 4px; line-height: 1.35; padding: 0 2px; }}
 
   /* 章节卡片 */
   .section-card {{
