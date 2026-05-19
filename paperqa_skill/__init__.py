@@ -812,6 +812,7 @@ async def _describe_figures(
     from litellm import acompletion
 
     described = []
+    skipped = 0
     for fig in figures:
         b64 = base64.b64encode(fig["bytes"]).decode()
         ext = fig["ext"]
@@ -821,8 +822,15 @@ async def _describe_figures(
         prompt = (
             f"This figure is from the paper '{paper_title}'. "
             f"Brief context: {context_snippet[:300]}\n\n"
-            f"Describe this figure in detail: what it shows, key components/architecture, "
-            f"and any quantitative data visible. "
+            f"Step 1 — Relevance check: Does this image convey SUBSTANTIVE research content? "
+            f"Relevant: architecture diagrams, flowcharts, data plots, result tables, algorithm "
+            f"illustrations, methodology schematics, experimental photos, quantitative charts. "
+            f"Irrelevant: logos, institutional branding, author portraits, decorative icons, "
+            f"blank/black areas, page headers/footers, QR codes, meaningless shapes.\n"
+            f"If IRRELEVANT, reply with ONLY the single word: IRRELEVANT\n"
+            f"If RELEVANT, proceed to Step 2.\n\n"
+            f"Step 2 — Description (only if relevant): Describe in detail: what it shows, "
+            f"key components/architecture, and any quantitative data visible. "
             f"Output format (STRICT):\n"
             f"【中文】... (2-3 sentences)\n"
             f"【English】... (2-3 sentences)"
@@ -846,6 +854,11 @@ async def _describe_figures(
             print(f"[paperqa_skill] Figure description failed: {e}")
             text = ""
 
+        # 检查是否为无关图片
+        if text.strip().upper() == "IRRELEVANT":
+            skipped += 1
+            continue
+
         # 解析中英
         desc_zh = desc_en = ""
         zh_m = re.search(r'【中文】\s*(.*?)(?=【English】|\Z)', text, re.DOTALL)
@@ -863,6 +876,8 @@ async def _describe_figures(
             "page": fig["page"],
         })
 
+    if skipped:
+        print(f"[paperqa_skill] Skipped {skipped} irrelevant figure(s)")
     return described
 
 
