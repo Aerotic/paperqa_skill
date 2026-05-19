@@ -353,9 +353,9 @@ def make_settings(
     deepseek_config = {
         "model_list": [
             {
-                "model_name": "openai/deepseek-chat",
+                "model_name": "openai/deepseek-v4-pro",
                 "litellm_params": {
-                    "model": "openai/deepseek-chat",
+                    "model": "openai/deepseek-v4-pro",
                     "api_key": DEEPSEEK_API_KEY,
                     "api_base": DEEPSEEK_API_BASE,
                 },
@@ -383,9 +383,9 @@ def make_settings(
         }
 
     return Settings(
-        llm="openai/deepseek-chat",
+        llm="openai/deepseek-v4-pro",
         llm_config=deepseek_config,
-        summary_llm="openai/deepseek-chat",
+        summary_llm="openai/deepseek-v4-pro",
         summary_llm_config=deepseek_config,
         embedding="st-all-mpnet-base-v2",
         parsing=parsing,
@@ -527,30 +527,81 @@ async def full_pipeline(
     # Step 1: 分析
     results = await analyze_paper(pdf_path, queries, output_dir, multimodal)
 
-    # Step 2: 收集所有分析结果
+    # Step 2+: 从中间结果生成报告
+    return await regenerate_reports(
+        cache_dir=output_dir,
+        paper_title=paper_title or pdf_stem,
+        pdf_path=pdf_path if multimodal else None,
+        output_dir=output_dir,
+    )
+
+
+async def regenerate_reports(
+    cache_dir: str,
+    paper_title: str = "",
+    pdf_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+) -> tuple[str, str]:
+    """从已缓存的 PaperQA2 中间结果重新生成 HTML/TXT 报告，无需重新分析。
+
+    适用于：
+    - 非多模态模式先批量分析多篇论文，后续挑选重点论文生成图文报告
+    - 修改报告生成逻辑后，快速重生成报告而不重新跑 PaperQA2 查询
+
+    Args:
+        cache_dir: 包含 PaperQA2 输出文件 (*_*.txt) 的目录
+        paper_title: 论文标题 (用于报告)
+        pdf_path: PDF 文件路径 (用于提取图片, None 则跳过图片提取)
+        output_dir: 输出目录 (默认同 cache_dir)
+
+    Returns:
+        (zh_html_path, en_html_path) 中英文 HTML 报告路径元组
+    """
+    output_dir = output_dir or cache_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Derive stem for file naming
+    title_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", paper_title)[:40] if paper_title else ""
+    dir_stem = Path(cache_dir).name
+    pdf_stem = Path(pdf_path).stem if pdf_path else (title_slug or dir_stem)
+
+    # ── Step 1: 从缓存目录收集所有分析结果 ─────────────────────────
     all_answers = []
-    for key, outpath in results.items():
-        with open(outpath, "r", encoding="utf-8") as f:
-            content = f.read()
-            answer_start = content.find("=== ANSWER ===")
-            formatted_start = content.find("=== FORMATTED ANSWER ===")
-            if answer_start >= 0 and formatted_start > answer_start:
-                answer_text = content[answer_start + 14:formatted_start].strip()
+    for fpath in sorted(Path(cache_dir).glob("*_*.txt")):
+        if "_report_" in fpath.name:
+            continue
+        content = fpath.read_text(encoding="utf-8")
+        answer_start = content.find("=== ANSWER ===")
+        formatted_start = content.find("=== FORMATTED ANSWER ===")
+        if answer_start >= 0 and formatted_start > answer_start:
+            answer_text = content[answer_start + 14:formatted_start].strip()
+            if answer_text:
                 all_answers.append(answer_text)
+                print(f"[paperqa_skill] Loaded cached: {fpath.name} ({len(answer_text)} chars)")
+
+    if not all_answers:
+        raise ValueError(
+            f"No cached PaperQA2 results found in: {cache_dir}\n"
+            "Run analyze_paper() or full_pipeline() first to generate intermediate results."
+        )
 
     combined = "\n\n".join(all_answers)
+    print(f"[paperqa_skill] Combined analysis: {len(combined)} chars from {len(all_answers)} query results")
 
-    # Step 3: 生成中文版完整报告 (专注、高质量)
+    # ── Step 2: 生成中文版完整报告 ─────────────────────────────────
     zh_prompt = (
         f"你是一位顶级学术论文分析专家。请根据以下对论文「{paper_title or pdf_stem}」的分析数据，"
         f"生成一份完整的**中文技术分析报告**。\n\n"
         f"## 输出结构 (严格按顺序, 2个大块)\n\n"
-        f"# 第一部分：总览\n"
-        f"简洁概括论文全貌，用加粗数字，覆盖问题/挑战/方法/效果。\n"
-        f"末尾必须附指标表格，其应该包含如下列，且表格格式应符合HTML标准，：\n"
-        # f"[METRICS]\n"
-        f"指标名称、值、含义解释(一句话说清这个指标衡量什么，这个指标的定义)\n"
-        # f"表格中一行内容的示例（“|”用来分隔不同列的内容）: 39% | 准确率提升 | Top-1准确率相较于baseline的提升幅度，准确率是与ground truth一致的预测数量和总数量的比值\n"
+        f"# 第一部分：总览 (含 5 个子部分，每个用 ### 标记)\n\n"
+        f"### 简述\n"
+        f"用一段话简洁概括论文全貌，覆盖核心问题、方法、关键效果，关键数字用**加粗**。\n\n"
+        f"### 问题与挑战\n\n"
+        f"### 方法概览\n\n"
+        f"### 架构流程\n"
+        f"用文字描述系统架构的完整链路，按步骤编号列出各阶段组件。\n\n"
+        f"### 关键效果\n\n"
+        f"**指标表格**（放在第一部分末尾，不属于单独小节）：\n"
         f"表格示例："
         f"```html\n"
         f"<table>\n"
@@ -566,18 +617,11 @@ async def full_pipeline(
         f"    </tr>\n"
         f"</table>\n"
         f"```\n"
-
-        # f"[/METRICS]\n"
-        f"重要：含义解释列不可省略，必须用完整句子描述指标意义，不可仅重复指标名。\n"
-        f"### 问题与挑战\n"
-        f"### 方法概览\n"
-        f"### 架构流程\n"
-        f"用文字描述系统架构的完整链路，按步骤编号列出各阶段组件。\n"
-        f"### 关键效果\n\n"
+        f"重要：含义解释列不可省略，必须用完整句子描述指标意义，不可仅重复指标名。\n\n"
         f"# 第二部分：创新点深度剖析\n"
         f"每个主要创新点一个 ### 小节：创新点命名 → 核心思想 → 与已有工作的区别 → 技术实现 → 有效性证据。\n\n"
         f"## 格式要求\n"
-        f"- 用 # 标记 2 大块, ### 标记小节\n"
+        f"- 用 # 标记 2 大块, ### 标记小节，### 标题独占一行\n"
         f"- 关键数字用 **加粗**，技术术语中英文对照\n"
         f"- 创新点每小节 5-8 句有实质内容\n"
         f"- 仅写数据能确认的信息，不空洞评价\n"
@@ -588,7 +632,7 @@ async def full_pipeline(
 
     from litellm import acompletion
     response_zh = await acompletion(
-        model="openai/deepseek-chat",
+        model="openai/deepseek-v4-pro",
         api_key=DEEPSEEK_API_KEY,
         api_base=DEEPSEEK_API_BASE,
         messages=[{"role": "user", "content": zh_prompt}],
@@ -597,7 +641,7 @@ async def full_pipeline(
     zh_report = response_zh.choices[0].message.content or ""
     print(f"[paperqa_skill] Chinese report generated ({len(zh_report)} chars)")
 
-    # Step 3b: 翻译中文报告为英文 (忠实翻译，保留结构和数据)
+    # ── Step 3: 翻译为英文 ──────────────────────────────────────────
     translate_prompt = (
         f"You are a professional academic translator. Translate the following Chinese technical "
         f"analysis report about the paper '{paper_title or pdf_stem}' into fluent, idiomatic English.\n\n"
@@ -617,37 +661,39 @@ async def full_pipeline(
     )
 
     response_en = await acompletion(
-        model="openai/deepseek-chat",
+        model="openai/deepseek-v4-pro",
         api_key=DEEPSEEK_API_KEY,
         api_base=DEEPSEEK_API_BASE,
         messages=[{"role": "user", "content": translate_prompt}],
-        temperature=0.1,  # 低温确保翻译忠实度
+        temperature=0.1,
     )
     en_report = response_en.choices[0].message.content or ""
     print(f"[paperqa_skill] English report translated ({len(en_report)} chars)")
 
-    # Step 3.5: 生成架构流程图 (中英各一份)
+    # ── Step 4: 生成架构流程图 ──────────────────────────────────────
     flow_svg_zh = await _build_flow_svg(paper_title or pdf_stem, combined, lang="zh")
     flow_svg_en = await _build_flow_svg(paper_title or pdf_stem, combined, lang="en")
 
-    # Step 3.6: 提取论文原图并用 Qwen3-VL-Plus 描述
-    figures = _extract_figures(pdf_path, max_images=6)
-    if figures:
-        print(f"[paperqa_skill] Extracted {len(figures)} figures from PDF, describing with Qwen3-VL-Plus...")
-    described_figures = await _describe_figures(figures, paper_title or pdf_stem, combined[:500])
+    # ── Step 5: 提取论文原图 (可选) ─────────────────────────────────
+    figures = []
+    if pdf_path and os.path.isfile(pdf_path):
+        figures = _extract_figures(pdf_path, max_images=6)
+        if figures:
+            print(f"[paperqa_skill] Extracted {len(figures)} figures from PDF, describing with Qwen3-VL-Plus...")
+    described_figures = await _describe_figures(figures, paper_title or pdf_stem, combined[:500]) if figures else []
     if described_figures:
         print(f"[paperqa_skill] Described {len(described_figures)} figures")
     else:
-        print(f"[paperqa_skill] No figures extracted or described")
+        if pdf_path:
+            print(f"[paperqa_skill] No figures extracted or described")
 
-    # Step 4: 解析中文和英文报告 (各自独立拆分为2大部分)
-    zh_parts = re.split(r'\n(?=# [^#])', zh_report.strip())
-    zh_parts = [p.strip() for p in zh_parts if p.strip()]
-
-    en_parts = re.split(r'\n(?=# [^#])', en_report.strip())
-    en_parts = [p.strip() for p in en_parts if p.strip()]
+    # ── Step 6: 解析报告并生成文件 ──────────────────────────────────
+    zh_parts = [p.strip() for p in re.split(r'\n(?=# [^#])', zh_report.strip()) if p.strip()]
+    en_parts = [p.strip() for p in re.split(r'\n(?=# [^#])', en_report.strip()) if p.strip()]
 
     def _gen_one(path, lang_parts, flow, lang, report_text):
+        if os.path.exists(path):
+            print(f"[paperqa_skill] Overwriting existing HTML: {path}")
         _generate_html_report(
             html_path=path,
             title=paper_title or pdf_stem,
@@ -665,14 +711,14 @@ async def full_pipeline(
     _gen_one(zh_path, zh_parts, flow_svg_zh, "zh", zh_report)
     _gen_one(en_path, en_parts, flow_svg_en, "en", en_report)
 
-    # Step 5: 生成纯文本版报告 (中英各一份)
+    # TXT reports
     def _save_txt(path, lang_parts):
+        if os.path.exists(path):
+            print(f"[paperqa_skill] Overwriting existing TXT: {path}")
         text = "\n\n".join(lang_parts)
-        # 清理 markdown: 去掉 ** 标记和 ### 前缀，保留可读文本
         text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
         text = re.sub(r'###\s+', '', text)
         text = re.sub(r'# [^\n]*\n', '', text)
-        # 将 [METRICS] 块格式化为可读文本表格
         text = _format_metrics_for_txt(text)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text.strip())
@@ -687,18 +733,27 @@ async def full_pipeline(
 
 
 async def _build_flow_svg(title: str, combined_analysis: str, lang: str = "zh") -> str:
-    """单独调用 LLM 生成架构流程描述, 并渲染为 SVG"""
+    """单独调用 LLM 生成架构流程描述, 并渲染为 SVG
+
+    从 combined_analysis 中提取论文实际架构信息生成流程图，
+    而非仅依赖 title（title 只有文件名 stem，缺乏语义信息）。
+    """
+
+    # 截断分析数据避免超出 LLM 上下文窗口
+    analysis_context = combined_analysis[:4000] if combined_analysis else ""
 
     if lang == "en":
         flow_prompt = (
-            f"Based on the paper '{title}', describe the system's end-to-end processing pipeline in one line.\n"
+            f"Based on the paper '{title}', describe the system's end-to-end processing pipeline in one line.\n\n"
+            f"Context from paper analysis:\n{analysis_context}\n\n"
             f"Format: strictly use 'Step1 → Step2 → Step3 → ...' with English short names (8 chars max), "
             f"joined by ' → '. Example: 'User Query → Intent Detection → Planning → Execution → Response'.\n"
             f"Output ONLY this line, no extra text."
         )
     else:
         flow_prompt = (
-            f"根据论文「{title}」的技术方案，用一句话描述系统从输入到输出的完整处理链路。\n"
+            f"根据论文「{title}」的技术方案，用一句话描述系统从输入到输出的完整处理链路。\n\n"
+            f"论文分析数据参考：\n{analysis_context}\n\n"
             f"格式：必须严格用 '第一步 → 第二步 → 第三步 → ...' 的格式，每步用中文简短命名(5字内)，"
             f"用' → '连接。如：'用户查询 → 意图识别 → 任务规划 → 执行动作 → 结果返回'。\n"
             f"只输出这一行，不要任何额外文字。"
@@ -706,7 +761,7 @@ async def _build_flow_svg(title: str, combined_analysis: str, lang: str = "zh") 
     from litellm import acompletion
     try:
         resp = await acompletion(
-            model="openai/deepseek-chat",
+            model="openai/deepseek-v4-pro",
             api_key=DEEPSEEK_API_KEY,
             api_base=DEEPSEEK_API_BASE,
             messages=[{"role": "user", "content": flow_prompt}],
@@ -1097,14 +1152,28 @@ def _generate_html_report(
                 continue
             sec_title = lines[0].replace("###", "").strip()
             sec_title = _sanitize(sec_title)
-            # 标题过长时截断，避免正文内容混入标题
+            # 标题过长说明正文被写在了同一行 → 提取短标题，溢出内容归入正文
             if len(sec_title) > 80:
-                sec_title = sec_title[:80] + "…"
-            # 跳过架构流程小节 (已用 SVG 替代)
+                # 尝试在冒号/逗号处截断作为短标题
+                overflow = ""
+                for sep in ('：', ':', '，', ',', '。'):
+                    idx = sec_title.find(sep)
+                    if 6 < idx < 50:
+                        overflow = sec_title[idx+1:].strip()
+                        sec_title = sec_title[:idx+1]
+                        break
+                else:
+                    # 无合适分隔符，硬截断并保留溢出
+                    overflow = sec_title[50:]
+                    sec_title = sec_title[:50] + "…"
+                if overflow:
+                    lines.insert(1, overflow)
+            # 架构流程小节：有 SVG 则替换，无则保留原始文字描述
             if "架构流程" in sec_title or "Architecture Flow" in sec_title:
                 if flow:
                     cards += flow
-                continue
+                    continue
+                # SVG 不可用时，保留原始文字内容作为普通卡片展示
             body_parts = []
             for line in lines[1:]:
                 s = line.strip()
@@ -1174,6 +1243,28 @@ def _generate_html_report(
         part_title_line = part_lines[0].replace("#", "").strip()
         part_body = part_lines[1] if len(part_lines) > 1 else ""
         subsections = re.split(r'\n(?=###\s)', part_body.strip())
+        # 检测首个块是否为编号摘要（如 "**1** 核心问题：...\n**2** 技术挑战：..."）
+        # LLM 常用 **N** 加粗序号，需兼容两种格式
+        # 若是则拆分为独立卡片，使每个主题有独立标题+正文
+        if subsections and not subsections[0].strip().startswith('#'):
+            lines_first = subsections[0].strip().split('\n')
+            num_count = sum(1 for l in lines_first if l.strip() and re.match(r'^(\*\*)?\d+(\*\*)?\s', l.strip()))
+            if num_count >= 2 and num_count >= len(lines_first) * 0.5:
+                split_items = []
+                current_lines = []
+                for line in lines_first:
+                    s = line.strip()
+                    if re.match(r'^(\*\*)?\d+(\*\*)?\s', s):
+                        if current_lines:
+                            split_items.append('\n'.join(current_lines))
+                        # 归一化：去掉加粗标记，使标题干净（兼容 **1** 和 **1**核心 两种写法）
+                        s = re.sub(r'^\*\*(\d+)\*\*\s*', r'\1 ', s)
+                        current_lines = [s]
+                    else:
+                        current_lines.append(s)
+                if current_lines:
+                    split_items.append('\n'.join(current_lines))
+                subsections = split_items + subsections[1:]
         accent = part_colors[idx % len(part_colors)]
 
         # 判断是否为 overview 部分 (包含"总览"或"Overview")
@@ -1465,11 +1556,13 @@ def cli():
         description="PaperQA2 论文分析流水线 — 支持 PDF URL 或本地路径"
     )
     parser.add_argument("source", nargs="?", default=None,
-                        help="PDF URL 或本地文件路径 (--configure 时可选)")
+                        help="PDF URL/本地路径，或 --regenerate 时的缓存目录")
     parser.add_argument("--title", "-t", default="", help="论文标题")
     parser.add_argument("--output", "-o", default=None, help="输出目录")
     parser.add_argument("--no-multimodal", action="store_true", help="禁用多模态")
     parser.add_argument("--full", "-f", action="store_true", help="运行完整流水线 (含 HTML 报告)")
+    parser.add_argument("--regenerate", "-r", action="store_true",
+                        help="从已缓存的 PaperQA2 中间结果重新生成报告 (不重新分析)")
     parser.add_argument("--configure", "-c", action="store_true",
                         help="运行配置向导 (设置 LLM API keys)")
     parser.add_argument("--config-dir", default=None,
@@ -1479,6 +1572,41 @@ def cli():
     # 配置模式
     if args.configure:
         configure(args.config_dir)
+        return 0
+
+    # 重生成模式: source 是缓存目录
+    if args.regenerate:
+        if not args.source:
+            parser.print_help()
+            print("\nError: --regenerate 需要指定包含缓存结果的目录")
+            return 1
+        _cfg = load_config(args.config_dir)
+        missing = check_config(_cfg)
+        if missing:
+            print("⚠️  以下配置项缺失，请先运行配置向导:")
+            for m in missing:
+                print(f"   - {m}")
+            print(f"\n  运行: python -m paperqa_skill --configure")
+            return 1
+        # 可选：如果是多模态模式且有 PDF，提取图片
+        pdf_path = None
+        if not args.no_multimodal:
+            # 尝试在缓存目录中找到 PDF
+            candidates = list(Path(args.source).glob("*.pdf"))
+            if not candidates:
+                candidates = list(Path(args.source).parent.glob("*.pdf"))
+            if candidates:
+                pdf_path = str(candidates[0])
+                print(f"[paperqa_skill] Found PDF for figure extraction: {pdf_path}")
+            else:
+                print("[paperqa_skill] No PDF found — figures will be skipped")
+        zh, en = asyncio.run(regenerate_reports(
+            cache_dir=args.source,
+            paper_title=args.title,
+            pdf_path=pdf_path,
+            output_dir=args.output,
+        ))
+        print(f"Done. ZH: {zh}\n     EN: {en}")
         return 0
 
     # 分析模式: source 必填

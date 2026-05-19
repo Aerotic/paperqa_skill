@@ -48,7 +48,8 @@ def _make_slug(title: str, pdf_source: str) -> str:
 
 def _rename_reports(output_dir: Path, new_stem: str) -> dict[str, str]:
     """Rename all *_report_* files to {new_stem}_report_*.  Also _zh → _cn.
-    Returns mapping of old path → new path."""
+    Returns mapping of old path → new path.
+    Uses replace() to overwrite existing files on re-runs."""
     renamed = {}
     for old_path in sorted(output_dir.glob("*_report_*")):
         suffix = old_path.suffix  # .html or .txt
@@ -60,7 +61,7 @@ def _rename_reports(output_dir: Path, new_stem: str) -> dict[str, str]:
         else:
             continue
         new_path = output_dir / f"{new_stem}_report_{lang}{suffix}"
-        old_path.rename(new_path)
+        old_path.replace(new_path)
         renamed[str(old_path)] = str(new_path)
     return renamed
 

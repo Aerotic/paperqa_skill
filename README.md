@@ -155,7 +155,35 @@ python -m paperqa_skill paper.pdf --full --title "论文标题" --output ./repor
 
 # 禁用多模态 (无需 Bailian Key)
 python -m paperqa_skill paper.pdf --full --no-multimodal
+
+# 从缓存中间结果重新生成报告（无需 PDF）
+python -m paperqa_skill ./reports/2312 --regenerate --title "MobileGPT"
 ```
+
+### 4.5 批量分析 + 选择性生成图文报告
+
+典型工作流：先批量分析大量论文（非多模态，快速低成本），再对重点论文生成图文报告。
+
+```python
+import asyncio
+from paperqa_skill import analyze_paper, regenerate_reports
+
+# Step 1: 批量分析（非多模态模式，快且便宜）
+papers = ["paper1.pdf", "paper2.pdf", "paper3.pdf"]
+for pdf in papers:
+    asyncio.run(analyze_paper(
+        pdf_source=pdf,
+        queries=["What is the key problem and methodology?", 
+                 "What are the major innovations and quantitative results?"],
+        multimodal=False,  # 跳过图片提取
+    ))
+
+# Step 2: 对重点论文生成图文报告（从缓存中间结果 + PDF 图片）
+zh_html, en_html = asyncio.run(regenerate_reports(
+    cache_dir="./output/paper1",     # 包含 analyze_paper 输出的目录
+    paper_title="My Key Paper",
+    pdf_path="./papers/paper1.pdf",  # 用于提取论文原图
+))
 
 ---
 
@@ -179,6 +207,23 @@ python -m paperqa_skill paper.pdf --full --no-multimodal
 
 对单篇 PDF 执行自定义查询，返回 `{query_key: output_file_path}`。
 
+### `regenerate_reports(cache_dir, paper_title, pdf_path, output_dir)`
+
+从已缓存的 PaperQA2 中间结果重新生成 HTML/TXT 报告，**无需重新分析 PDF**。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `cache_dir` | `str` | 包含 `analyze_paper` 输出文件 (`*_*.txt`) 的目录 |
+| `paper_title` | `str` | 论文标题 (用于报告) |
+| `pdf_path` | `str` | PDF 文件路径。提供时提取论文原图嵌入报告；`None` 则跳过图片 |
+| `output_dir` | `str` | 输出目录 (默认同 cache_dir) |
+
+**返回:** `(zh_html_path, en_html_path)` 中英文 HTML 报告路径元组。
+
+**使用场景：**
+- `--no-multimodal` 批量分析多篇论文后，挑选重点论文补充图片生成图文报告
+- 修改报告生成逻辑后，快速重生成报告而不重新跑 PaperQA2 查询
+
 ### `resolve_pdf_source(source, output_dir, filename)`
 
 解析 PDF 源：URL → 自动下载；本地路径 → 直接返回。
@@ -192,10 +237,10 @@ python -m paperqa_skill paper.pdf --full --no-multimodal
 ## 6. 命令行使用
 
 ```
-python -m paperqa_skill [-h] [--title TITLE] [--output DIR] [--no-multimodal] [--full] source
+python -m paperqa_skill [-h] [--title TITLE] [--output DIR] [--no-multimodal] [--full] [--regenerate] source
 
 位置参数:
-  source                PDF URL 或本地文件路径
+  source                PDF URL/本地路径，或 --regenerate 时的缓存目录
 
 可选参数:
   -h, --help            显示帮助
@@ -203,6 +248,15 @@ python -m paperqa_skill [-h] [--title TITLE] [--output DIR] [--no-multimodal] [-
   -o, --output DIR      输出目录
   --no-multimodal       禁用多模态 (无需 Bailian Key)
   -f, --full            运行完整流水线 (含 HTML 报告)
+  -r, --regenerate      从缓存中间结果重新生成报告 (source 为缓存目录)
+```
+
+**示例：**
+
+```bash
+# 批量分析 + 重生成图文报告
+python -m paperqa_skill paper.pdf --full --no-multimodal    # 第一步：无图分析
+python -m paperqa_skill ./output/paper --regenerate -t "标题"  # 第二步：生成图文报告
 ```
 
 ---
