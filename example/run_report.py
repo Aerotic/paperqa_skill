@@ -2,9 +2,13 @@
 Example: full pipeline analysis with paperqa_skill.
 
 Usage:
-    python example/run_report2.py                          # uses ../2312.pdf
-    python example/run_report2.py path/to/paper.pdf        # custom PDF/URL
-    python example/run_report2.py paper.pdf -t "Title"     # with title
+    python example/run_report.py                              # uses ../2312.pdf
+    python example/run_report.py paper.pdf                    # custom PDF/URL
+    python example/run_report.py paper.pdf -t "Paper Title"   # with title
+
+Output goes to example/demo_output/{slug}/, where {slug} is derived from
+the paper title (simplified) or PDF filename stem as fallback.
+Report files inside are named {slug}_report_cn.html, {slug}_report_en.html, etc.
 
 Requirements:
     pip install paper-qa paper-qa[local]
@@ -13,14 +17,52 @@ Requirements:
 
 import argparse
 import asyncio
+import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from paperqa_skill import check_config, full_pipeline
 
-# ── Resolve default PDF relative to this script ───────────────────────
+# ── Paths ─────────────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_PDF = SCRIPT_DIR.parent / "2312.pdf"
+DEMO_OUTPUT = SCRIPT_DIR / "demo_output"
+
+
+def _make_slug(title: str, pdf_source: str) -> str:
+    """Derive a clean slug from the paper title, falling back to PDF stem."""
+    if title:
+        # Take first few words, strip punctuation, lowercase, join
+        words = re.findall(r"[a-zA-Z0-9]+", title)
+        slug = "_".join(w.lower() for w in words[:5])
+        if slug:
+            return slug[:60]
+    # Fallback: PDF filename stem
+    if pdf_source.startswith(("http://", "https://")):
+        stem = Path(urlparse(pdf_source).path).stem
+    else:
+        stem = Path(pdf_source).stem
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", stem)[:60] or "paper"
+
+
+def _rename_reports(output_dir: Path, new_stem: str) -> dict[str, str]:
+    """Rename all *_report_* files to {new_stem}_report_*.  Also _zh → _cn.
+    Returns mapping of old path → new path."""
+    renamed = {}
+    for old_path in sorted(output_dir.glob("*_report_*")):
+        suffix = old_path.suffix  # .html or .txt
+        # Determine lang: zh → cn, en stays en
+        if "_report_zh" in old_path.stem:
+            lang = "cn"
+        elif "_report_en" in old_path.stem:
+            lang = "en"
+        else:
+            continue
+        new_path = output_dir / f"{new_stem}_report_{lang}{suffix}"
+        old_path.rename(new_path)
+        renamed[str(old_path)] = str(new_path)
+    return renamed
 
 
 async def main() -> None:
@@ -36,12 +78,7 @@ async def main() -> None:
     parser.add_argument(
         "-t", "--title",
         default="",
-        help="Paper title (optional, defaults to PDF filename stem)",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        default=None,
-        help="Output directory (default: same dir as PDF)",
+        help="Paper title (used for report header and output folder naming)",
     )
     parser.add_argument(
         "--no-multimodal",
@@ -61,16 +98,31 @@ async def main() -> None:
         print("WARNING: BAILIAN_API_KEY not configured — disabling multimodal.")
         args.no_multimodal = True
 
+    # ── Derive slug and output directory ──────────────────────────────
+    slug = _make_slug(args.title, args.pdf)
+    output_dir = DEMO_OUTPUT / slug
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     # ── Run pipeline ──────────────────────────────────────────────────
-    pdf_source = args.pdf
-    print(f"Analyzing: {pdf_source}")
+    print(f"Analyzing: {args.pdf}")
+    print(f"Title:     {args.title or '(derived from PDF)'}")
+    print(f"Output:    {output_dir}")
 
     zh_html, en_html = await full_pipeline(
-        pdf_source=pdf_source,
+        pdf_source=args.pdf,
         paper_title=args.title,
-        output_dir=args.output,
+        output_dir=str(output_dir),
         multimodal=not args.no_multimodal,
     )
+
+    # ── Rename reports to use slug ────────────────────────────────────
+    renamed = _rename_reports(output_dir, slug)
+    for old, new in renamed.items():
+        print(f"  {Path(old).name}  →  {Path(new).name}")
+
+    # Update returned paths
+    zh_html = renamed.get(zh_html, zh_html)
+    en_html = renamed.get(en_html, en_html)
 
     print(f"\nChinese report: {zh_html}")
     print(f"English report: {en_html}")
