@@ -160,7 +160,28 @@ python -m paperqa_skill paper.pdf --full --no-multimodal
 python -m paperqa_skill ./reports/2312 --regenerate --title "MobileGPT"
 ```
 
-### 4.5 批量分析 + 选择性生成图文报告
+### 4.5 示例脚本
+
+`example/run_report.py` 是开箱即用的完整示例，自动管理输出目录和文件命名：
+
+```bash
+# 分析默认 PDF (../2312.pdf)，输出到 demo_output/2312/
+python example/run_report.py
+
+# 分析指定 PDF，指定标题
+python example/run_report.py paper.pdf -t "论文标题"
+
+# 禁用多模态（跳过图片提取）
+python example/run_report.py paper.pdf --no-multimodal
+
+# 从缓存中间结果重生成报告
+python example/run_report.py demo_output/2312 --regenerate -t "MobileGPT"
+
+# 自定义输出目录
+python example/run_report.py paper.pdf -o ./my_reports
+```
+
+### 4.6 批量分析 + 选择性生成图文报告
 
 典型工作流：先批量分析大量论文（非多模态，快速低成本），再对重点论文生成图文报告。
 
