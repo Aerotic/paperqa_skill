@@ -1,0 +1,72 @@
+=== ANSWER ===
+Based solely on the provided context, the paper's major innovations are as follows:
+
+**1. Three-Phase Inference Structure (Explore-Select-Derive)**
+The core technical idea decomposes mobile task completion into distinct phases: Explore (proactively collects sub-tasks per app screen), Select (LLM picks the most pertinent sub-task, including global ones like 'Read_Screen' and 'Finish'), and Derive (LLM incrementally selects low-level actions like click/input/scroll) (lee2024mobilegptaugmentingllm pages 5-6). This differs from a traditional "Derive-only" baseline structure (lee2024mobilegptaugmentingllm pages 10-11). Implementation uses multiple LLM agents: GPT-4-turbo for screen understanding and reasoning, GPT-3.5-turbo for slot-filling (lee2024mobilegptaugmentingllm pages 8-9). Quantitative evidence from the ablation study shows phase accuracy: Explore at 96.4%, Select at 96.2%, and Derive at 99.1% (lee2024mobilegptaugmentingllm pages 10-11).
+
+**2. Human-Like App Memory with Three-Level Hierarchy**
+The system introduces a three-level hierarchical memory (tasks, sub-tasks, actions) for efficient storage and reuse (lee2024mobilegptaugmentingllm pages 3-4). This enables shared learning across tasks and addresses challenges in efficient storage and flexible recall (lee2024mobilegptaugmentingllm pages 10-11, lee2024mobilegptaugmentingllm pages 3-4). 
+
+**3. Dual-Strategy Failure Handling**
+The paper implements a dual-strategy correction mechanism: (1) Self-correcting via rule-based feedback (e.g., 'There is no UI with index i', 'You have looped the same screens X times') appended to the prompt; (2) Human-in-the-loop (HITL) task repair for Explore/Select/Derive failures (lee2024mobilegptaugmentingllm pages 5-6). The repair mechanism scored 64.6 on the System Usability Scale (SUS) (lee2024mobilegptaugmentingllm pages 12-13).
+
+**4. Offline Exploration for App Page Discovery**
+Offline exploration uses a random explorer and user trace monitor (lee2024mobilegptaugmentingllm pages 3-4). It discovered 50 app pages per app (89.65% of needed pages) at a monetary cost of $10.78 (lee2024mobilegptaugmentingllm pages 10-11).
+
+**5. Function-Call Parameterization**
+The system uses function-call parameterization for handling task variations (lee2024mobilegptaugmentingllm pages 3-4). This is described as an innovation for flexible task recall.
+
+**6. App Launch Recommendation via Vector Database**
+App launch recommends a top-3 list using Google Play descriptions stored in a vector database (lee2024mobilegptaugmentingllm pages 8-9).
+
+=== FORMATTED ANSWER ===
+Question: Identify and analyze every major innovation and novel contribution in the paper '2312'. For EACH innovation: (1) Name the innovation, (2) Explain the core technical idea in detail, (3) Describe how it differs from prior work, (4) Explain the specific implementation/architecture, (5) Cite quantitative evidence of its effectiveness from the paper's experiments. Be extremely specific — cite exact numbers, algorithm names, architectural components, and design choices. List ALL innovations, not just the main one.
+
+Based solely on the provided context, the paper's major innovations are as follows:
+
+**1. Three-Phase Inference Structure (Explore-Select-Derive)**
+The core technical idea decomposes mobile task completion into distinct phases: Explore (proactively collects sub-tasks per app screen), Select (LLM picks the most pertinent sub-task, including global ones like 'Read_Screen' and 'Finish'), and Derive (LLM incrementally selects low-level actions like click/input/scroll) (lee2024mobilegptaugmentingllm pages 5-6). This differs from a traditional "Derive-only" baseline structure (lee2024mobilegptaugmentingllm pages 10-11). Implementation uses multiple LLM agents: GPT-4-turbo for screen understanding and reasoning, GPT-3.5-turbo for slot-filling (lee2024mobilegptaugmentingllm pages 8-9). Quantitative evidence from the ablation study shows phase accuracy: Explore at 96.4%, Select at 96.2%, and Derive at 99.1% (lee2024mobilegptaugmentingllm pages 10-11).
+
+**2. Human-Like App Memory with Three-Level Hierarchy**
+The system introduces a three-level hierarchical memory (tasks, sub-tasks, actions) for efficient storage and reuse (lee2024mobilegptaugmentingllm pages 3-4). This enables shared learning across tasks and addresses challenges in efficient storage and flexible recall (lee2024mobilegptaugmentingllm pages 10-11, lee2024mobilegptaugmentingllm pages 3-4). 
+
+**3. Dual-Strategy Failure Handling**
+The paper implements a dual-strategy correction mechanism: (1) Self-correcting via rule-based feedback (e.g., 'There is no UI with index i', 'You have looped the same screens X times') appended to the prompt; (2) Human-in-the-loop (HITL) task repair for Explore/Select/Derive failures (lee2024mobilegptaugmentingllm pages 5-6). The repair mechanism scored 64.6 on the System Usability Scale (SUS) (lee2024mobilegptaugmentingllm pages 12-13).
+
+**4. Offline Exploration for App Page Discovery**
+Offline exploration uses a random explorer and user trace monitor (lee2024mobilegptaugmentingllm pages 3-4). It discovered 50 app pages per app (89.65% of needed pages) at a monetary cost of $10.78 (lee2024mobilegptaugmentingllm pages 10-11).
+
+**5. Function-Call Parameterization**
+The system uses function-call parameterization for handling task variations (lee2024mobilegptaugmentingllm pages 3-4). This is described as an innovation for flexible task recall.
+
+**6. App Launch Recommendation via Vector Database**
+App launch recommends a top-3 list using Google Play descriptions stored in a vector database (lee2024mobilegptaugmentingllm pages 8-9).
+
+References
+
+1. (lee2024mobilegptaugmentingllm pages 5-6): Sunjae Lee, Junyoung Choi, Jungjae Lee, Munim Hasan Wasi, Hojun Choi, Steven Y. Ko, Sangeun Oh, and Insik Shin. Mobilegpt: augmenting llm with human-like app memory for mobile task automation. Proceedings of the 30th Annual International Conference on Mobile Computing and Networking, pages 1119-1133, Dec 2024. URL: https://doi.org/10.1145/3636534.3690682, doi:10.1145/3636534.3690682. This article has 58 citations.
+
+2. (lee2024mobilegptaugmentingllm pages 10-11): Sunjae Lee, Junyoung Choi, Jungjae Lee, Munim Hasan Wasi, Hojun Choi, Steven Y. Ko, Sangeun Oh, and Insik Shin. Mobilegpt: augmenting llm with human-like app memory for mobile task automation. Proceedings of the 30th Annual International Conference on Mobile Computing and Networking, pages 1119-1133, Dec 2024. URL: https://doi.org/10.1145/3636534.3690682, doi:10.1145/3636534.3690682. This article has 58 citations.
+
+3. (lee2024mobilegptaugmentingllm pages 8-9): Sunjae Lee, Junyoung Choi, Jungjae Lee, Munim Hasan Wasi, Hojun Choi, Steven Y. Ko, Sangeun Oh, and Insik Shin. Mobilegpt: augmenting llm with human-like app memory for mobile task automation. Proceedings of the 30th Annual International Conference on Mobile Computing and Networking, pages 1119-1133, Dec 2024. URL: https://doi.org/10.1145/3636534.3690682, doi:10.1145/3636534.3690682. This article has 58 citations.
+
+4. (lee2024mobilegptaugmentingllm pages 3-4): Sunjae Lee, Junyoung Choi, Jungjae Lee, Munim Hasan Wasi, Hojun Choi, Steven Y. Ko, Sangeun Oh, and Insik Shin. Mobilegpt: augmenting llm with human-like app memory for mobile task automation. Proceedings of the 30th Annual International Conference on Mobile Computing and Networking, pages 1119-1133, Dec 2024. URL: https://doi.org/10.1145/3636534.3690682, doi:10.1145/3636534.3690682. This article has 58 citations.
+
+5. (lee2024mobilegptaugmentingllm pages 12-13): Sunjae Lee, Junyoung Choi, Jungjae Lee, Munim Hasan Wasi, Hojun Choi, Steven Y. Ko, Sangeun Oh, and Insik Shin. Mobilegpt: augmenting llm with human-like app memory for mobile task automation. Proceedings of the 30th Annual International Conference on Mobile Computing and Networking, pages 1119-1133, Dec 2024. URL: https://doi.org/10.1145/3636534.3690682, doi:10.1145/3636534.3690682. This article has 58 citations.
+
+=== CONTEXTS ===
+
+--- Context 1 (doc=lee2024mobilegptaugmentingllm pages 3-4, score=8) ---
+MobileGPT introduces a workflow with Explore, Select, Derive, and Recall phases for mobile task automation. Innovations include offline exploration using random explorer and user trace monitor, a three-level hierarchical memory (tasks, sub-tasks, actions) for efficient storage and reuse, a dual-strategy correction mechanism (LLM and user) for error handling, and function-call parameterization for handling task variations. The system addresses challenges in accurate first-time execution, efficient storage, and flexible recall of tasks.
+--- Context 2 (doc=lee2024mobilegptaugmentingllm pages 10-11, score=8) ---
+The excerpt describes MobileGPT's architecture and evaluation, focusing on its three-phase inference structure (Explore-Select-Derive) and memory system. It compares MobileGPT to a baseline using the same prompts but with a traditional Derive-only structure. MobileGPT achieves near-perfect accuracy (98.75%) during warm-start, outperforming the baseline in both cold and warm starts. Key innovations include task decomposition into subtasks, shared learning across tasks, and HITL task repair for memory. Offline exploration discovered 50 app pages per app (89.65% of needed pages) at a cost of $10.
+--- Context 3 (doc=lee2024mobilegptaugmentingllm pages 9-10, score=2) ---
+The excerpt describes experiments comparing MobileGPT with AutoDroid and AppAgent on mobile task automation. Key details include: use of GPT-4-turbo and GPT-3.5 Turbo; evaluation on 18 apps and 185 tasks across three datasets; MobileGPT introduced a cold-start and warm-start two-stage approach where memory is built in cold-start and reused in warm-start; MobileGPT retains hierarchical UI information, uses chain-of-thought-like subtask splitting, and preserves more layout details than competitors; warm-start achieved 87% latency reduction and 90% cost reduction vs. others; cold-start success ra
+--- Context 4 (doc=lee2024mobilegptaugmentingllm pages 5-6, score=4) ---
+The excerpt describes MobileGPT's architecture for mobile task automation using LLMs. It includes three phases: Explore (proactively collecting sub-tasks per app screen), Select (LLM picks the most pertinent sub-task from a list including global sub-tasks like 'Read_Screen' and 'Finish'), and Derive (LLM incrementally selects low-level actions like click/input/scroll to execute the sub-task). MobileGPT uses a dual-strategy failure handling: (1) Self-correcting through feedback generation, where rule-based feedback (e.g., 'There is no UI with index i', 'You have looped the same screens X times'
+--- Context 5 (doc=lee2024mobilegptaugmentingllm pages 12-13, score=6) ---
+The excerpt describes a user study evaluating MobileGPT's usability compared to Samsung Bixby Macro (PbD) and a custom baseline. MobileGPT showed higher usability scores (e.g., 4.7 for new tasks, 6.1 for repeat tasks, 5.7 for similar tasks vs. baseline 4.4, 4.3, 4.3, respectively) with significant improvements (Mann-Whitney U Test p-values: 0.26, 4.8e-8, 6.5e-6). Participants favored MobileGPT (all but one) and all expressed willingness to use it, versus 35% for baseline and 30% for PbD. The system’s power consumption averaged 330.38 mW, memory 213 MB. The repair mechanism scored 64.6 on SUS.
+--- Context 6 (doc=lee2024mobilegptaugmentingllm pages 8-9, score=6) ---
+The excerpt from the MobileGPT paper describes a system that augments LLMs with human-like app memory for mobile task automation. Key innovations include a memory-augmented framework with four phases (Explore, Select, Derive, Recall) and a task repair mechanism via human-in-the-loop (HITL). Implementation uses multiple LLM agents: GPT-4-turbo for screen understanding and reasoning, GPT-3.5-turbo for slot-filling. App launch recommends top-3 apps via Google Play descriptions stored in a vector database. Scrolling skips non-target actions. Evaluation uses a custom dataset of 80 tasks across 8 ap
+--- Context 7 (doc=lee2024mobilegptaugmentingllm pages 7-8, score=3) ---
+The excerpt describes MobileGPT's memory architecture for mobile task automation. Key innovations include: (1) Hierarchical memory structure with app pages (nodes) and sub-tasks (edges) that enable efficient task recall and cross-task sharing. (2) Sub-task-based screen classification using key UI elements (e.g., UI_index) to verify functionality, not appearance. It checks if a new screen has matching UIs for all sub-tasks of an existing node. If no match, it computes cosine similarity between sub-task lists to avoid redundant nodes. (3) Flexible task recall via attribute-based action adaptatio

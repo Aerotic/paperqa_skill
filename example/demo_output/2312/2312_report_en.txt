@@ -1,0 +1,82 @@
+1 Core Problem: The inherent non-determinism of Large Language Models (LLMs) leads to a lack of reliable task memory in mobile task automation, making it difficult to efficiently reproduce learned tasks.
+
+2 Method Innovation: Proposes the MobileGPT system, which enhances LLM task reproduction capability through a Human-like App Memory architecture and a three-stage reasoning structure (Explore-Select-Derive), and introduces a Dual-Strategy Failure Handling mechanism.
+
+3 Key Results: On a custom dataset of 80 tasks (160 instructions), MobileGPT achieves a step accuracy of 98.75% and a task success rate of 82.5% in the Warm-start scenario; compared to the baseline method, latency is reduced by 62.5% and cost by 68.8%; screen classification yields only 3 false positives and 0 false negatives across 269 application screens.
+
+Problems and Challenges
+
+The core challenge for mobile task automation is the non-determinism of LLMs — i.e., the same task may produce different outputs across different execution rounds, preventing the system from reliably reproducing learned operational procedures. Existing methods (e.g., AutoDroid, AppAgent) lack effective task memory mechanisms, requiring reasoning from scratch for each execution, resulting in wasted computational resources and degraded user experience. Additionally, the dynamic nature of mobile application user interfaces (UIs) and the diversity of task parameters (e.g., different recipients, different search keywords) further increase the difficulty for the system to stably reproduce tasks.
+
+Method Overview
+
+MobileGPT proposes a Cold-start/Warm-start dual-phase workflow. The cold-start phase learns new tasks through a three-stage process of Explore, Select, and Derive, constructing hierarchical memory; the warm-start phase utilizes stored memory to quickly reproduce tasks via Sub-task Slot-filling and In-context Adaptation. The system uses GPT-4-turbo for screen understanding and reasoning, GPT-3.5-turbo for slot filling, and offloads computation to the server, resulting in an average mobile power consumption of only 330.38 mW.
+
+Architecture Flow
+
+1.  Offline Exploration Phase: Automatically discovers application pages via a Random Explorer and a User Trace Monitor, discovering an average of 50 pages per application (covering 89.65% of required pages) at a cost of $10.78.
+2.  Cold-start Learning Phase: User demonstrates a new task → Explore stage (LLM collects sub-tasks per screen) → Select stage (LLM selects the most relevant sub-task, including global sub-tasks like "Read Screen" and "Finish") → Derive stage (LLM progressively selects low-level actions like tap/input/scroll) → Task structure is stored in three-level hierarchical memory (Task-Sub-task-Action).
+3.  Warm-start Execution Phase: User inputs a natural language instruction → App Launch Recommendation (Top-3 apps recommended based on a vector database of Google Play descriptions) → Sub-task Slot-filling (parameters filled using GPT-3.5-turbo) → In-context Adaptation (matching task structure retrieved from memory) → Actions executed step-by-step.
+4.  Failure Handling Phase: If an error occurs during execution → Self-correcting (rule-based feedback like "UI element at index i does not exist" appended to the prompt) → If self-correction fails → Human-in-the-loop (HITL) task repair (System Usability Scale SUS score 64.6).
+
+Key Results
+
+-   Warm-start Step Accuracy: 98.75%, near-perfect
+-   Warm-start Task Success Rate: 82.5%, overall success rate 82.16%
+-   Latency and Cost: Warm-start latency reduced by 62.5%, cost reduced by 68.8% (compared to baseline)
+-   Memory Hit Rate: Varies by application (Telegram 98.6%, Gmail 70.6%)
+-   Screen Classification: Only 3 false positives and 0 false negatives across 269 screens
+
+Metrics Table
+
+| Value | Metric Name | Explanation | Category |
+| :--- | :--- | :--- | :--- |
+| 98.75% | Warm-start Step Accuracy | The rate at which system execution steps perfectly match expected steps in the warm-start scenario, measuring the precision of task reproduction. | accuracy |
+| 82.5% | Warm-start Task Success Rate | The proportion of complete tasks successfully executed in the warm-start scenario, measuring the system's ability to reproduce the full task workflow. | accuracy |
+| 62.5% | Latency Reduction | The percentage decrease in task execution time for warm-start compared to cold-start (baseline), measuring the efficiency gain from memory reuse. | reduction |
+| 68.8% | Cost Reduction | The percentage decrease in API call cost for warm-start compared to cold-start (baseline), measuring the economic benefit of memory reuse. | reduction |
+| 3 | Screen Classification False Positives | The number of times the system incorrectly classified a non-target screen as a target screen, measuring the false alarm rate of the screen recognition module. | other |
+| 0 | Screen Classification False Negatives | The number of times the system failed to identify a target screen, measuring the miss rate of the screen recognition module. | other |
+| 89.65% | Application Page Coverage | The proportion of task-required pages discovered during offline exploration, measuring the extent of application UI coverage achieved during the exploration phase. | accuracy |
+| 330.38 mW | Average Mobile Power Consumption | The average power consumption of the mobile device during system operation, measuring the system's energy efficiency on mobile devices. | other |
+
+
+Three-stage Reasoning Structure (Explore-Select-Derive)
+
+Core Idea: Decomposes the mobile task completion process into three logically independent reasoning stages, rather than having the LLM generate all actions at once. The Explore stage collects all possible sub-tasks per screen; the Select stage prompts the LLM to choose the most relevant sub-task from candidates (including global sub-tasks like "Read Screen" and "Finish"); the Derive stage progressively derives specific low-level actions (tap, input, scroll). This decomposition reduces the complexity of single-shot reasoning, allowing the LLM to focus more effectively on the specific objective of each stage.
+
+Difference from Existing Work: Traditional methods (e.g., AutoDroid) adopt a "Derive-only" structure, requiring the LLM to map directly from screen state to action sequence in one step. This end-to-end approach is prone to errors in complex multi-step tasks and cannot effectively utilize structured task information. MobileGPT's three-stage structure breaks the task into manageable sub-problems, with clear input and output specifications for each stage.
+
+Technical Implementation: Uses GPT-4-turbo as the core reasoning engine, handling the three stages separately. The Explore stage takes the UI element description of the current screen as input and outputs a list of all possible sub-tasks supported by that screen; the Select stage takes the sub-task list and task objective as input and outputs the selected sub-task; the Derive stage takes the sub-task and UI state as input and outputs the specific action. Ablation experiments show stage accuracies of: Explore 96.4%, Select 96.2%, Derive 99.1%, demonstrating the effectiveness of this decomposition strategy.
+
+Evidence of Effectiveness: An ablation study compared the three-stage structure against a Derive-only baseline. The three-stage structure achieved a warm-start step accuracy of 98.75%, significantly outperforming the baseline. The high accuracy of each individual stage indicates that decomposing complex reasoning tasks into multiple simpler sub-tasks effectively enhances the reliability of LLM decision-making.
+
+Human-like App Memory and Three-level Hierarchical Memory Architecture
+
+Core Idea: Mimics the organizational structure of human memory by storing application operation knowledge hierarchically across three levels: Task, Sub-task, and Action. The task level records the complete task objective and parameters; the sub-task level is grouped by application screen, recording the set of executable sub-tasks for that screen; the action level stores specific UI interaction instructions. This structure supports cross-task sharing (different tasks may share the same sub-task sequence), enabling efficient storage and flexible recall.
+
+Difference from Existing Work: Existing systems (e.g., AppAgent) typically store task memory as flat action sequences, lacking structured organization. As the number of tasks increases, retrieval efficiency drops sharply, and commonalities between tasks cannot be leveraged. MobileGPT's hierarchical memory allows the system to quickly locate relevant memories via sub-task matching and handle task variants through parameter slot-filling.
+
+Technical Implementation: Memory is stored in JSON format, with each task containing a task ID, objective description, parameter slot definitions, and a sub-task sequence. Sub-task nodes are grouped by application screen; sub-tasks under the same screen share the UI context. During warm-start, the system maps parameters from the user instruction to memory slots using Sub-task Slot-filling (with GPT-3.5-turbo), then retrieves the matching task structure. Memory hit rate varies by application complexity: Telegram achieves 98.6%, while Gmail only reaches 70.6%, indicating that the parameter diversity of email applications poses a greater challenge for memory retrieval.
+
+Evidence of Effectiveness: The warm-start step accuracy of 98.75% and task success rate of 82.5% directly demonstrate the effectiveness of the hierarchical memory. The latency reduction of 62.5% and cost reduction of 68.8% quantify the efficiency gains from memory reuse. The cross-task sharing capability was demonstrated in experiments: when multiple tasks shared the same sub-task sequence, the system could reuse it without re-learning.
+
+Dual-Strategy Failure Handling Mechanism
+
+Core Idea: Designed two complementary correction strategies to address various errors that may occur during LLM task execution. Self-correcting appends rule-generated feedback information (e.g., "UI element at index i does not exist", "You have looped through the same screen X times") to the LLM prompt, allowing the model to adjust its behavior autonomously. Human-in-the-loop (HITL) serves as a fallback mechanism, allowing users to manually intervene and correct errors in the Explore/Select/Derive stages when self-correction fails.
+
+Difference from Existing Work: Most mobile automation systems (e.g., AutoDroid) lack explicit error handling mechanisms; once the LLM produces an erroneous action, the task fails. MobileGPT treats error handling as a first-class citizen in its design, equipping the system with self-correction capability through feedback loops while retaining a human intervention interface for handling complex or unexpected situations.
+
+Technical Implementation: The self-correcting module checks the execution result after each action. If an error is detected (e.g., UI element not found, entering a loop), it generates structured feedback information and re-invokes the LLM. The HITL module provides a graphical interface allowing users to view the current task state, modify sub-task selections, or directly edit the action sequence. The System Usability Scale (SUS) score is 64.6, indicating that the HITL interface's ease of use is moderately above average.
+
+Evidence of Effectiveness: Although the paper does not provide separate data for the self-correction success rate, the overall task success rate of 82.16% (warm-start 82.5%) suggests that the failure handling mechanism effectively salvages some failed tasks. The HITL SUS score of 64.6 indicates that the mechanism has achieved an acceptable level of practicality and user acceptance.
+
+Offline Exploration and Application Page Discovery
+
+Core Idea: Before user interaction, proactively discover all possible pages and UI states of an application through automated exploration, building a comprehensive application knowledge base. A Random Explorer randomly taps UI elements, combined with a User Trace Monitor that records real user operation paths. These two methods complement each other to maximize page coverage.
+
+Difference from Existing Work: Existing systems typically rely on user demonstrations or online exploration to learn application structure, requiring significant user interaction during the cold-start phase. MobileGPT's offline exploration automates the page discovery process; users only need to demonstrate the task workflow during the cold-start phase, without manually exploring all application functionalities.
+
+Technical Implementation: The Random Explorer performs random operations like taps and swipes within the application, recording the screen state after each operation. The User Trace Monitor collects operation sequences from users' daily usage. Combining both methods, the system discovers an average of 50 pages per application, covering 89.65% of the pages required for tasks. The monetary cost of the entire exploration process is only $10.78 (primarily from LLM API calls).
+
+Evidence of Effectiveness: The 89.65% page coverage rate demonstrates that offline exploration can effectively cover the vast majority of task-required pages. The low cost of $10.78 proves the economic feasibility of this method. The screen classification module's results — only 3 false positives and 0 false negatives across 269 screens — further validate the high quality and classification accuracy of the page data collected during the exploration phase.
