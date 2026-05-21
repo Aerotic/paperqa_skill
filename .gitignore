@@ -1,2 +1,5 @@
 __pycache__
 *.egg-info/
+example/.cache/2312_zh_report.txt
+example/demo_output/
+.sisyphus/
